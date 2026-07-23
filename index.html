@@ -1,0 +1,1538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>投资组合优化器 | Portfolio Optimizer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#080c14',
+            'bg-alt': '#0d1220',
+            card: '#111827',
+            'card-hover': '#162032',
+            border: '#1e293b',
+            'border-light': '#2a3a52',
+            accent: '#f59e0b',
+            'accent-dim': 'rgba(245,158,11,0.15)',
+            positive: '#10b981',
+            'positive-dim': 'rgba(16,185,129,0.15)',
+            negative: '#ef4444',
+            'negative-dim': 'rgba(239,68,68,0.15)',
+            muted: '#64748b',
+            fg: '#f1f5f9',
+            'fg-dim': '#94a3b8',
+          },
+          fontFamily: {
+            display: ['Playfair Display', 'serif'],
+            sans: ['DM Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: #080c14; color: #f1f5f9; overflow-x: hidden; }
+    
+    /* 背景氛围 */
+    .bg-glow {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 600px 400px at 15% 20%, rgba(245,158,11,0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 500px 500px at 85% 70%, rgba(16,185,129,0.03) 0%, transparent 70%),
+        radial-gradient(ellipse 800px 300px at 50% 100%, rgba(245,158,11,0.02) 0%, transparent 60%);
+      animation: glowShift 25s ease-in-out infinite alternate;
+    }
+    @keyframes glowShift {
+      0% { opacity: 0.8; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.05); }
+      100% { opacity: 0.8; transform: scale(1); }
+    }
+
+    /* 网格纹理 */
+    .grid-pattern {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 0; opacity: 0.025;
+      background-image:
+        linear-gradient(rgba(245,158,11,0.3) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(245,158,11,0.3) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    /* 滚动条 */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a3a52; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a4a62; }
+
+    /* 侧边栏 */
+    .sidebar { 
+      width: 340px; min-width: 340px; 
+      height: calc(100vh - 72px); 
+      overflow-y: auto; 
+      border-right: 1px solid #1e293b;
+      background: rgba(13,18,32,0.8);
+      backdrop-filter: blur(20px);
+    }
+
+    /* ETF项目 */
+    .etf-item {
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .etf-item:hover { background: rgba(245,158,11,0.05); border-color: rgba(245,158,11,0.15); }
+    .etf-item.selected { 
+      background: rgba(245,158,11,0.08); 
+      border-color: rgba(245,158,11,0.3); 
+      box-shadow: inset 3px 0 0 #f59e0b;
+    }
+
+    /* 权重滑块 */
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 4px; border-radius: 4px;
+      background: #1e293b; outline: none;
+      transition: background 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #f59e0b; cursor: pointer;
+      box-shadow: 0 0 8px rgba(245,158,11,0.4);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+      box-shadow: 0 0 14px rgba(245,158,11,0.6);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #f59e0b; cursor: pointer; border: none;
+    }
+
+    /* 指标卡片 */
+    .metric-card {
+      background: linear-gradient(135deg, rgba(17,24,39,0.9), rgba(17,24,39,0.6));
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+    .metric-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--card-accent, #f59e0b), transparent);
+      opacity: 0.6;
+    }
+    .metric-card:hover { 
+      border-color: rgba(245,158,11,0.3); 
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    }
+
+    /* 图表容器 */
+    .chart-container {
+      background: rgba(17,24,39,0.6);
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 24px;
+      position: relative;
+    }
+
+    /* 优化按钮 */
+    .btn-optimize {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #080c14;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 24px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+    }
+    .btn-optimize::before {
+      content: '';
+      position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+      transition: left 0.5s ease;
+    }
+    .btn-optimize:hover::before { left: 100%; }
+    .btn-optimize:hover { 
+      transform: translateY(-1px);
+      box-shadow: 0 6px 25px rgba(245,158,11,0.35);
+    }
+    .btn-optimize:active { transform: translateY(0); }
+    .btn-optimize:disabled {
+      opacity: 0.5; cursor: not-allowed; transform: none !important;
+      box-shadow: none !important;
+    }
+
+    /* 分类标签 */
+    .cat-tag {
+      padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+      cursor: pointer; transition: all 0.2s;
+      border: 1px solid #1e293b; background: transparent; color: #94a3b8;
+    }
+    .cat-tag:hover { border-color: #3a4a62; color: #f1f5f9; }
+    .cat-tag.active { 
+      background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.4); 
+      color: #f59e0b; 
+    }
+
+    /* 单选按钮 */
+    .radio-opt {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 8px; cursor: pointer;
+      border: 1px solid transparent; transition: all 0.2s;
+    }
+    .radio-opt:hover { background: rgba(255,255,255,0.03); }
+    .radio-opt.active { 
+      background: rgba(245,158,11,0.06); 
+      border-color: rgba(245,158,11,0.25); 
+    }
+    .radio-dot {
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid #3a4a62; position: relative;
+      transition: all 0.2s; flex-shrink: 0;
+    }
+    .radio-opt.active .radio-dot {
+      border-color: #f59e0b;
+    }
+    .radio-opt.active .radio-dot::after {
+      content: ''; position: absolute;
+      top: 3px; left: 3px; width: 6px; height: 6px;
+      border-radius: 50%; background: #f59e0b;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 30px; right: 30px; z-index: 1000;
+      padding: 14px 24px; border-radius: 10px;
+      background: rgba(17,24,39,0.95); border: 1px solid rgba(245,158,11,0.3);
+      backdrop-filter: blur(10px); color: #f1f5f9;
+      font-size: 14px; font-weight: 500;
+      transform: translateY(100px); opacity: 0;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* 加载动画 */
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid rgba(8,12,20,0.3);
+      border-top-color: #080c14;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 渐入动画 */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .anim-in { animation: fadeInUp 0.5s ease forwards; }
+    .anim-in-d1 { animation-delay: 0.05s; opacity: 0; }
+    .anim-in-d2 { animation-delay: 0.1s; opacity: 0; }
+    .anim-in-d3 { animation-delay: 0.15s; opacity: 0; }
+    .anim-in-d4 { animation-delay: 0.2s; opacity: 0; }
+    .anim-in-d5 { animation-delay: 0.25s; opacity: 0; }
+    .anim-in-d6 { animation-delay: 0.3s; opacity: 0; }
+
+    /* 热力图tooltip */
+    .heatmap-tooltip {
+      position: absolute; z-index: 50;
+      background: rgba(17,24,39,0.95); border: 1px solid #2a3a52;
+      border-radius: 8px; padding: 8px 12px;
+      font-size: 12px; pointer-events: none;
+      opacity: 0; transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .heatmap-tooltip.visible { opacity: 1; }
+
+    /* 数字输入 */
+    .weight-input {
+      width: 58px; background: #0d1220; border: 1px solid #1e293b;
+      border-radius: 6px; padding: 4px 6px; color: #f59e0b;
+      font-size: 13px; font-weight: 600; text-align: right;
+      outline: none; transition: border-color 0.2s;
+      font-family: 'DM Sans', sans-serif;
+    }
+    .weight-input:focus { border-color: #f59e0b; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .sidebar { width: 100%; min-width: 100%; height: auto; max-height: 50vh; border-right: none; border-bottom: 1px solid #1e293b; }
+      .main-layout { flex-direction: column !important; }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="bg-glow"></div>
+  <div class="grid-pattern"></div>
+
+  <!-- 顶部导航 -->
+  <header class="relative z-10 h-[72px] flex items-center justify-between px-6 border-b border-border" style="background:rgba(8,12,20,0.8);backdrop-filter:blur(20px);">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-accent to-amber-600 flex items-center justify-center">
+        <i class="fas fa-chart-pie text-bg text-sm"></i>
+      </div>
+      <div>
+        <h1 class="font-display text-xl text-fg leading-tight tracking-wide">Portfolio Optimizer</h1>
+        <p class="text-[11px] text-muted tracking-wider uppercase">Markowitz Mean-Variance Optimization</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-xs text-muted hidden sm:block">基于现代投资组合理论 (MPT)</span>
+      <div class="w-2 h-2 rounded-full bg-positive animate-pulse" title="实时就绪"></div>
+    </div>
+  </header>
+
+  <!-- 主体 -->
+  <div class="main-layout relative z-10 flex" style="height:calc(100vh - 72px);">
+    
+    <!-- 左侧面板 -->
+    <aside class="sidebar" id="sidebar">
+      <!-- 搜索 -->
+      <div class="p-4 pb-2 sticky top-0 z-10" style="background:rgba(13,18,32,0.95);backdrop-filter:blur(10px);">
+        <div class="relative">
+          <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-muted text-xs"></i>
+          <input type="text" id="searchInput" placeholder="搜索ETF代码或名称..." 
+            class="w-full bg-bg-alt border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm text-fg placeholder:text-muted/60 outline-none focus:border-accent/50 transition-colors">
+        </div>
+      </div>
+
+      <!-- 分类标签 -->
+      <div class="px-4 pb-3 flex flex-wrap gap-2" id="catTags">
+        <button class="cat-tag active" data-cat="all">全部</button>
+        <button class="cat-tag" data-cat="美股大盘">美股大盘</button>
+        <button class="cat-tag" data-cat="美股小盘">美股小盘</button>
+        <button class="cat-tag" data-cat="国际股票">国际股票</button>
+        <button class="cat-tag" data-cat="固定收益">固定收益</button>
+        <button class="cat-tag" data-cat="大宗商品">大宗商品</button>
+        <button class="cat-tag" data-cat="另类投资">另类投资</button>
+      </div>
+
+      <!-- ETF列表 -->
+      <div class="px-3 pb-3">
+        <div class="flex items-center justify-between px-2 mb-2">
+          <span class="text-xs text-muted font-medium uppercase tracking-wider">可选资产</span>
+          <span class="text-xs text-muted" id="etfCount">12 只</span>
+        </div>
+        <div id="etfList" class="space-y-1"></div>
+      </div>
+
+      <!-- 分割线 -->
+      <div class="mx-4 border-t border-border"></div>
+
+      <!-- 已选ETF权重 -->
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs text-muted font-medium uppercase tracking-wider">组合权重</span>
+          <span class="text-xs font-semibold" id="totalWeight" style="color:#f59e0b;">100%</span>
+        </div>
+        <div id="weightList" class="space-y-3"></div>
+        <div id="emptyWeight" class="text-center py-6 text-muted text-sm">
+          <i class="fas fa-hand-pointer mb-2 text-lg opacity-40"></i>
+          <p>点击左侧ETF添加到组合</p>
+        </div>
+      </div>
+
+      <!-- 分割线 -->
+      <div class="mx-4 border-t border-border"></div>
+
+      <!-- 优化设置 -->
+      <div class="p-4 space-y-3">
+        <span class="text-xs text-muted font-medium uppercase tracking-wider">优化目标</span>
+        <div class="space-y-1" id="optTargets">
+          <div class="radio-opt active" data-target="sharpe">
+            <div class="radio-dot"></div>
+            <div>
+              <div class="text-sm text-fg font-medium">最大夏普比率</div>
+              <div class="text-[11px] text-muted">风险调整后收益最优</div>
+            </div>
+          </div>
+          <div class="radio-opt" data-target="minrisk">
+            <div class="radio-dot"></div>
+            <div>
+              <div class="text-sm text-fg font-medium">最小波动率</div>
+              <div class="text-[11px] text-muted">组合风险最低</div>
+            </div>
+          </div>
+          <div class="radio-opt" data-target="equal">
+            <div class="radio-dot"></div>
+            <div>
+              <div class="text-sm text-fg font-medium">等权重分配</div>
+              <div class="text-[11px] text-muted">每只资产权重相同</div>
+            </div>
+          </div>
+          <div class="radio-opt" data-target="target">
+            <div class="radio-dot"></div>
+            <div>
+              <div class="text-sm text-fg font-medium">目标收益</div>
+              <div class="text-[11px] text-muted">实现指定年化收益率</div>
+            </div>
+          </div>
+        </div>
+        <div id="targetReturnGroup" class="hidden pl-6">
+          <label class="text-xs text-muted">目标年化收益率</label>
+          <div class="flex items-center gap-2 mt-1">
+            <input type="number" id="targetReturn" value="8" min="0" max="30" step="0.5"
+              class="weight-input w-20 text-left pl-2">
+            <span class="text-sm text-muted">%</span>
+          </div>
+        </div>
+        <div class="pt-1">
+          <label class="text-xs text-muted">无风险利率</label>
+          <div class="flex items-center gap-2 mt-1">
+            <input type="number" id="riskFreeRate" value="4.5" min="0" max="10" step="0.1"
+              class="weight-input w-20 text-left pl-2">
+            <span class="text-sm text-muted">%</span>
+          </div>
+        </div>
+        <button class="btn-optimize mt-2" id="btnOptimize" disabled>
+          <i class="fas fa-bolt mr-2"></i>优化组合
+        </button>
+      </div>
+    </aside>
+
+    <!-- 右侧主内容 -->
+    <main class="flex-1 overflow-y-auto p-6 space-y-6" id="mainContent">
+      
+      <!-- 指标卡片 -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="metric-card anim-in anim-in-d1" style="--card-accent:#f59e0b;">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-7 h-7 rounded-lg bg-accent-dim flex items-center justify-center">
+              <i class="fas fa-arrow-trend-up text-accent text-xs"></i>
+            </div>
+            <span class="text-xs text-muted font-medium">预期年化收益</span>
+          </div>
+          <div class="text-2xl font-bold text-fg" id="metricReturn">--</div>
+          <div class="text-xs text-muted mt-1" id="metricReturnSub">添加资产以计算</div>
+        </div>
+        <div class="metric-card anim-in anim-in-d2" style="--card-accent:#6366f1;">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:rgba(99,102,241,0.15);">
+              <i class="fas fa-wave-square text-xs" style="color:#6366f1;"></i>
+            </div>
+            <span class="text-xs text-muted font-medium">年化波动率</span>
+          </div>
+          <div class="text-2xl font-bold text-fg" id="metricVol">--</div>
+          <div class="text-xs text-muted mt-1" id="metricVolSub">添加资产以计算</div>
+        </div>
+        <div class="metric-card anim-in anim-in-d3" style="--card-accent:#10b981;">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-7 h-7 rounded-lg bg-positive-dim flex items-center justify-center">
+              <i class="fas fa-scale-balanced text-positive text-xs"></i>
+            </div>
+            <span class="text-xs text-muted font-medium">夏普比率</span>
+          </div>
+          <div class="text-2xl font-bold text-fg" id="metricSharpe">--</div>
+          <div class="text-xs text-muted mt-1" id="metricSharpeSub">添加资产以计算</div>
+        </div>
+        <div class="metric-card anim-in anim-in-d4" style="--card-accent:#ef4444;">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-7 h-7 rounded-lg bg-negative-dim flex items-center justify-center">
+              <i class="fas fa-arrow-down text-negative text-xs"></i>
+            </div>
+            <span class="text-xs text-muted font-medium">最大回撤</span>
+          </div>
+          <div class="text-2xl font-bold text-fg" id="metricDD">--</div>
+          <div class="text-xs text-muted mt-1" id="metricDDSub">添加资产以计算</div>
+        </div>
+      </div>
+
+      <!-- 有效前沿 + 饼图 -->
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div class="chart-container lg:col-span-3 anim-in anim-in-d4">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-sm font-semibold text-fg">有效前沿与蒙特卡洛模拟</h3>
+              <p class="text-[11px] text-muted mt-0.5">10,000个随机组合 · 当前组合标记</p>
+            </div>
+            <div class="flex items-center gap-3 text-[11px] text-muted">
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:rgba(245,158,11,0.3);"></span>随机组合</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-accent"></span>当前组合</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-positive"></span>最优组合</span>
+            </div>
+          </div>
+          <canvas id="frontierChart" height="280"></canvas>
+        </div>
+        <div class="chart-container lg:col-span-2 anim-in anim-in-d5">
+          <div class="mb-4">
+            <h3 class="text-sm font-semibold text-fg">资产配置</h3>
+            <p class="text-[11px] text-muted mt-0.5">当前组合权重分布</p>
+          </div>
+          <canvas id="pieChart" height="240"></canvas>
+        </div>
+      </div>
+
+      <!-- 累计收益曲线 -->
+      <div class="chart-container anim-in anim-in-d5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-fg">模拟累计收益曲线</h3>
+            <p class="text-[11px] text-muted mt-0.5">基于历史统计特征的36个月回测</p>
+          </div>
+        </div>
+        <canvas id="returnChart" height="220"></canvas>
+      </div>
+
+      <!-- 相关性热力图 + 风险分解 -->
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div class="chart-container lg:col-span-3 anim-in anim-in-d6">
+          <div class="mb-4">
+            <h3 class="text-sm font-semibold text-fg">相关性矩阵</h3>
+            <p class="text-[11px] text-muted mt-0.5">已选资产间的收益相关系数</p>
+          </div>
+          <div class="relative" id="heatmapWrap">
+            <canvas id="heatmapCanvas"></canvas>
+            <div class="heatmap-tooltip" id="heatmapTooltip"></div>
+          </div>
+          <div id="heatmapEmpty" class="text-center py-8 text-muted text-sm">请先选择至少2只ETF</div>
+        </div>
+        <div class="chart-container lg:col-span-2 anim-in anim-in-d6">
+          <div class="mb-4">
+            <h3 class="text-sm font-semibold text-fg">风险分解</h3>
+            <p class="text-[11px] text-muted mt-0.5">各资产对组合总风险的贡献</p>
+          </div>
+          <canvas id="riskChart" height="240"></canvas>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ========================================
+    // 数据层：ETF基础数据与相关性矩阵
+    // ========================================
+    const etfData = [
+      { ticker: 'SPY',  name: '标普500指数ETF',     category: '美股大盘', ret: 0.102, vol: 0.165 },
+      { ticker: 'QQQ',  name: '纳斯达克100 ETF',     category: '美股大盘', ret: 0.145, vol: 0.210 },
+      { ticker: 'DIA',  name: '道琼斯工业ETF',       category: '美股大盘', ret: 0.095, vol: 0.150 },
+      { ticker: 'IWM',  name: '罗素2000小盘ETF',     category: '美股小盘', ret: 0.085, vol: 0.200 },
+      { ticker: 'VEA',  name: '发达市场指数ETF',     category: '国际股票', ret: 0.065, vol: 0.155 },
+      { ticker: 'VWO',  name: '新兴市场指数ETF',     category: '国际股票', ret: 0.055, vol: 0.185 },
+      { ticker: 'AGG',  name: '美国综合债券ETF',     category: '固定收益', ret: 0.015, vol: 0.045 },
+      { ticker: 'TLT',  name: '20年+国债ETF',        category: '固定收益', ret: 0.010, vol: 0.140 },
+      { ticker: 'LQD',  name: '投资级公司债ETF',     category: '固定收益', ret: 0.035, vol: 0.070 },
+      { ticker: 'IEF',  name: '7-10年国债ETF',       category: '固定收益', ret: 0.020, vol: 0.070 },
+      { ticker: 'GLD',  name: '黄金信托ETF',         category: '大宗商品', ret: 0.075, vol: 0.165 },
+      { ticker: 'VNQ',  name: '美国房地产ETF',       category: '另类投资', ret: 0.070, vol: 0.210 },
+    ];
+
+    // 相关性矩阵（基于真实ETF历史相关性近似）
+    // 顺序：SPY QQQ DIA IWM VEA VWO AGG TLT LQD IEF GLD VNQ
+    const corrMatrix = [
+      [1.00, 0.92, 0.95, 0.85, 0.78, 0.65,-0.05,-0.20, 0.10,-0.10, 0.05, 0.70],
+      [0.92, 1.00, 0.88, 0.78, 0.72, 0.60,-0.08,-0.22, 0.05,-0.12, 0.02, 0.65],
+      [0.95, 0.88, 1.00, 0.82, 0.76, 0.63,-0.03,-0.18, 0.08,-0.08, 0.04, 0.68],
+      [0.85, 0.78, 0.82, 1.00, 0.70, 0.62,-0.02,-0.15, 0.12,-0.05, 0.08, 0.68],
+      [0.78, 0.72, 0.76, 0.70, 1.00, 0.82, 0.05,-0.10, 0.18, 0.02, 0.15, 0.60],
+      [0.65, 0.60, 0.63, 0.62, 0.82, 1.00, 0.08,-0.05, 0.20, 0.08, 0.18, 0.55],
+      [-0.05,-0.08,-0.03,-0.02, 0.05, 0.08, 1.00, 0.85, 0.88, 0.90, 0.20, 0.10],
+      [-0.20,-0.22,-0.18,-0.15,-0.10,-0.05, 0.85, 1.00, 0.65, 0.88, 0.25,-0.05],
+      [0.10, 0.05, 0.08, 0.12, 0.18, 0.20, 0.88, 0.65, 1.00, 0.82, 0.15, 0.15],
+      [-0.10,-0.12,-0.08,-0.05, 0.02, 0.08, 0.90, 0.88, 0.82, 1.00, 0.18, 0.05],
+      [0.05, 0.02, 0.04, 0.08, 0.15, 0.18, 0.20, 0.25, 0.15, 0.18, 1.00, 0.10],
+      [0.70, 0.65, 0.68, 0.68, 0.60, 0.55, 0.10,-0.05, 0.15, 0.05, 0.10, 1.00],
+    ];
+
+    // ========================================
+    // 状态管理
+    // ========================================
+    let selectedETFs = [];       // 已选ETF的索引列表
+    let weights = {};            // { etfIndex: weight(0-100) }
+    let optTarget = 'sharpe';    // 优化目标
+    let mcResults = [];          // 蒙特卡洛模拟结果
+    let optimalResult = null;    // 最优组合结果
+    let simulatedReturns = {};   // 各ETF模拟月度收益
+    let charts = {};             // Chart.js实例
+
+    // ========================================
+    // 数学工具
+    // ========================================
+    
+    // Box-Muller正态随机数
+    function randn() {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    // Cholesky分解（下三角矩阵L，使得 LL^T = M）
+    function cholesky(matrix) {
+      const n = matrix.length;
+      const L = Array.from({length: n}, () => new Float64Array(n));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+          let sum = 0;
+          for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
+          if (i === j) {
+            L[i][j] = Math.sqrt(Math.max(0, matrix[i][i] - sum));
+          } else {
+            L[i][j] = (matrix[i][j] - sum) / Math.max(1e-10, L[j][j]);
+          }
+        }
+      }
+      return L;
+    }
+
+    // 计算协方差矩阵
+    function getCovMatrix(indices) {
+      const n = indices.length;
+      const cov = Array.from({length: n}, () => new Float64Array(n));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          cov[i][j] = corrMatrix[indices[i]][indices[j]] * etfData[indices[i]].vol * etfData[indices[j]].vol;
+        }
+      }
+      return cov;
+    }
+
+    // 计算组合预期收益
+    function portReturn(indices, w) {
+      let r = 0;
+      for (let i = 0; i < indices.length; i++) {
+        r += w[i] * etfData[indices[i]].ret;
+      }
+      return r;
+    }
+
+    // 计算组合波动率
+    function portVol(indices, w, cov) {
+      const n = indices.length;
+      let v = 0;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          v += w[i] * w[j] * cov[i][j];
+        }
+      }
+      return Math.sqrt(Math.max(0, v));
+    }
+
+    // 生成随机权重（Dirichlet分布近似）
+    function randomWeights(n) {
+      const raw = Array.from({length: n}, () => Math.random() + 0.01);
+      const sum = raw.reduce((a, b) => a + b, 0);
+      return raw.map(x => x / sum);
+    }
+
+    // 生成模拟月度收益（Cholesky方法）
+    function generateSimulatedReturns(indices, months = 36) {
+      const n = indices.length;
+      const cov = getCovMatrix(indices);
+      const L = cholesky(cov);
+      const data = Array.from({length: n}, () => new Float64Array(months));
+      
+      for (let t = 0; t < months; t++) {
+        const z = Array.from({length: n}, () => randn());
+        for (let i = 0; i < n; i++) {
+          let val = 0;
+          for (let k = 0; k <= i; k++) val += L[i][k] * z[k];
+          // 月度收益 = 年化收益/12 + 月度随机波动
+          data[i][t] = etfData[indices[i]].ret / 12 + val / Math.sqrt(12);
+        }
+      }
+      return data;
+    }
+
+    // 计算累计收益曲线
+    function cumulativeReturns(simData, w) {
+      const months = simData[0].length;
+      const curve = [1.0];
+      for (let t = 0; t < months; t++) {
+        let portR = 0;
+        for (let i = 0; i < simData.length; i++) portR += w[i] * simData[i][t];
+        curve.push(curve[curve.length - 1] * (1 + portR));
+      }
+      return curve;
+    }
+
+    // 计算最大回撤
+    function maxDrawdown(curve) {
+      let peak = curve[0], maxDD = 0;
+      for (let i = 1; i < curve.length; i++) {
+        if (curve[i] > peak) peak = curve[i];
+        const dd = (peak - curve[i]) / peak;
+        if (dd > maxDD) maxDD = dd;
+      }
+      return maxDD;
+    }
+
+    // 风险分解：边际风险贡献 * 权重
+    function riskDecomposition(indices, w, cov) {
+      const n = indices.length;
+      const totalVol = portVol(indices, w, cov);
+      if (totalVol < 1e-10) return w.map(() => 0);
+      const mrc = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let j = 0; j < n; j++) sum += cov[i][j] * w[j];
+        mrc[i] = sum / totalVol;
+      }
+      return Array.from(mrc, (v, i) => w[i] * v / totalVol);
+    }
+
+    // ========================================
+    // 蒙特卡洛模拟
+    // ========================================
+    function runMonteCarlo(indices, numSamples = 10000) {
+      const n = indices.length;
+      const cov = getCovMatrix(indices);
+      const results = [];
+
+      for (let s = 0; s < numSamples; s++) {
+        const w = randomWeights(n);
+        const r = portReturn(indices, w);
+        const v = portVol(indices, w, cov);
+        results.push({ w, r, v, sharpe: v > 1e-10 ? (r - getRiskFreeRate()) / v : 0 });
+      }
+      return results;
+    }
+
+    // 提取有效前沿点
+    function extractFrontier(results, numBins = 60) {
+      if (results.length === 0) return [];
+      // 按收益排序
+      const sorted = [...results].sort((a, b) => a.r - b.r);
+      const minR = sorted[0].r, maxR = sorted[sorted.length - 1].r;
+      const binWidth = (maxR - minR) / numBins;
+      
+      const frontier = [];
+      for (let b = 0; b < numBins; b++) {
+        const lo = minR + b * binWidth;
+        const hi = lo + binWidth;
+        const bin = sorted.filter(p => p.r >= lo && p.r < hi);
+        if (bin.length > 0) {
+          const min = bin.reduce((a, c) => c.v < a.v ? c : a, bin[0]);
+          frontier.push(min);
+        }
+      }
+      return frontier;
+    }
+
+    // 优化求解
+    function optimize(indices) {
+      const n = indices.length;
+      const cov = getCovMatrix(indices);
+      const rf = getRiskFreeRate();
+
+      if (optTarget === 'equal') {
+        const w = Array(n).fill(1 / n);
+        return {
+          w,
+          r: portReturn(indices, w),
+          v: portVol(indices, w, cov),
+          sharpe: portVol(indices, w, cov) > 1e-10 ? (portReturn(indices, w) - rf) / portVol(indices, w, cov) : 0
+        };
+      }
+
+      if (optTarget === 'target') {
+        const targetR = parseFloat(document.getElementById('targetReturn').value) / 100;
+        // 从蒙特卡洛结果中找最接近目标收益且波动率最低的组合
+        let best = null, bestDiff = Infinity;
+        for (const p of mcResults) {
+          const diff = Math.abs(p.r - targetR);
+          if (diff < bestDiff || (diff === bestDiff && best && p.v < best.v)) {
+            bestDiff = diff;
+            best = p;
+          }
+        }
+        return best || mcResults[0];
+      }
+
+      // 最大夏普 或 最小风险
+      if (optTarget === 'sharpe') {
+        return mcResults.reduce((a, c) => c.sharpe > a.sharpe ? c : a, mcResults[0]);
+      }
+      if (optTarget === 'minrisk') {
+        return mcResults.reduce((a, c) => c.v < a.v ? c : a, mcResults[0]);
+      }
+    }
+
+    function getRiskFreeRate() {
+      return parseFloat(document.getElementById('riskFreeRate').value) / 100 || 0.045;
+    }
+
+    // ========================================
+    // 图表渲染
+    // ========================================
+    
+    const chartColors = [
+      '#f59e0b', '#10b981', '#6366f1', '#ef4444', '#ec4899',
+      '#06b6d4', '#84cc16', '#f97316', '#8b5cf6', '#14b8a6',
+      '#e11d48', '#0ea5e9'
+    ];
+
+    function createFrontierChart() {
+      const ctx = document.getElementById('frontierChart').getContext('2d');
+      charts.frontier = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+          datasets: [
+            {
+              label: '随机组合',
+              data: [],
+              backgroundColor: 'rgba(245,158,11,0.15)',
+              borderColor: 'rgba(245,158,11,0.08)',
+              pointRadius: 1.5,
+              pointHoverRadius: 3,
+              order: 3
+            },
+            {
+              label: '有效前沿',
+              data: [],
+              type: 'line',
+              borderColor: 'rgba(245,158,11,0.5)',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              fill: false,
+              tension: 0.4,
+              order: 2
+            },
+            {
+              label: '当前组合',
+              data: [],
+              backgroundColor: '#f59e0b',
+              borderColor: '#fbbf24',
+              pointRadius: 8,
+              pointHoverRadius: 10,
+              pointBorderWidth: 2,
+              order: 1
+            },
+            {
+              label: '最优组合',
+              data: [],
+              backgroundColor: '#10b981',
+              borderColor: '#34d399',
+              pointRadius: 8,
+              pointHoverRadius: 10,
+              pointBorderWidth: 2,
+              pointStyle: 'star',
+              order: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'nearest', intersect: true },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(17,24,39,0.95)',
+              borderColor: 'rgba(245,158,11,0.3)',
+              borderWidth: 1,
+              titleColor: '#f1f5f9',
+              bodyColor: '#94a3b8',
+              padding: 12,
+              cornerRadius: 8,
+              callbacks: {
+                label: ctx => {
+                  const p = ctx.raw;
+                  return [`收益: ${(p.x * 100).toFixed(2)}%`, `波动: ${(p.y * 100).toFixed(2)}%`];
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: '预期年化收益率', color: '#64748b', font: { size: 11 } },
+              ticks: { color: '#64748b', font: { size: 10 }, callback: v => (v * 100).toFixed(0) + '%' },
+              grid: { color: 'rgba(30,41,59,0.5)' },
+              border: { color: '#1e293b' }
+            },
+            y: {
+              title: { display: true, text: '年化波动率', color: '#64748b', font: { size: 11 } },
+              ticks: { color: '#64748b', font: { size: 10 }, callback: v => (v * 100).toFixed(0) + '%' },
+              grid: { color: 'rgba(30,41,59,0.5)' },
+              border: { color: '#1e293b' },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    function createPieChart() {
+      const ctx = document.getElementById('pieChart').getContext('2d');
+      charts.pie = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderWidth: 0, hoverOffset: 8 }] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '62%',
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: '#94a3b8', font: { size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 8 }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(17,24,39,0.95)',
+              borderColor: 'rgba(245,158,11,0.3)',
+              borderWidth: 1,
+              titleColor: '#f1f5f9',
+              bodyColor: '#94a3b8',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed.toFixed(1)}%` }
+            }
+          }
+        }
+      });
+    }
+
+    function createReturnChart() {
+      const ctx = document.getElementById('returnChart').getContext('2d');
+      charts.returns = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array.from({length: 37}, (_, i) => i === 0 ? '起始' : `M${i}`),
+          datasets: [
+            {
+              label: '当前组合',
+              data: [],
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,0.05)',
+              borderWidth: 2.5,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              fill: true,
+              tension: 0.3
+            },
+            {
+              label: '最优组合',
+              data: [],
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16,185,129,0.05)',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              fill: true,
+              tension: 0.3,
+              borderDash: [6, 3]
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true, pointStyleWidth: 8, padding: 16 }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(17,24,39,0.95)',
+              borderColor: 'rgba(245,158,11,0.3)',
+              borderWidth: 1,
+              titleColor: '#f1f5f9',
+              bodyColor: '#94a3b8',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: { label: ctx => ` ${ctx.dataset.label}: ${(ctx.parsed.y * 100 - 100).toFixed(2)}%` }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 13 },
+              grid: { color: 'rgba(30,41,59,0.3)' },
+              border: { color: '#1e293b' }
+            },
+            y: {
+              ticks: { color: '#64748b', font: { size: 10 }, callback: v => (v * 100 - 100).toFixed(0) + '%' },
+              grid: { color: 'rgba(30,41,59,0.3)' },
+              border: { color: '#1e293b' }
+            }
+          }
+        }
+      });
+    }
+
+    function createRiskChart() {
+      const ctx = document.getElementById('riskChart').getContext('2d');
+      charts.risk = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderWidth: 0, borderRadius: 4, barThickness: 20 }] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(17,24,39,0.95)',
+              borderColor: 'rgba(245,158,11,0.3)',
+              borderWidth: 1,
+              titleColor: '#f1f5f9',
+              bodyColor: '#94a3b8',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: { label: ctx => ` 风险贡献: ${(ctx.parsed.x * 100).toFixed(2)}%` }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: '#64748b', font: { size: 10 }, callback: v => (v * 100).toFixed(0) + '%' },
+              grid: { color: 'rgba(30,41,59,0.3)' },
+              border: { color: '#1e293b' }
+            },
+            y: {
+              ticks: { color: '#94a3b8', font: { size: 11, weight: 500 } },
+              grid: { display: false },
+              border: { color: '#1e293b' }
+            }
+          }
+        }
+      });
+    }
+
+    // ========================================
+    // 热力图绘制（Canvas自绘）
+    // ========================================
+    function drawHeatmap(indices) {
+      const canvas = document.getElementById('heatmapCanvas');
+      const empty = document.getElementById('heatmapEmpty');
+      const wrap = document.getElementById('heatmapWrap');
+      
+      if (indices.length < 2) {
+        canvas.style.display = 'none';
+        empty.style.display = 'block';
+        wrap.style.height = 'auto';
+        return;
+      }
+      
+      canvas.style.display = 'block';
+      empty.style.display = 'none';
+      
+      const n = indices.length;
+      const cellSize = Math.min(50, Math.max(32, Math.floor((wrap.clientWidth - 60) / n)));
+      const labelW = 48;
+      const labelH = 22;
+      const w = labelW + n * cellSize;
+      const h = labelH + n * cellSize;
+      
+      canvas.width = w * 2;
+      canvas.height = h * 2;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      
+      const ctx = canvas.getContext('2d');
+      ctx.scale(2, 2);
+      ctx.clearRect(0, 0, w, h);
+      
+      // 颜色映射：-1(蓝) -> 0(深灰) -> 1(琥珀)
+      function corrColor(val) {
+        const t = (val + 1) / 2; // 0~1
+        if (t < 0.5) {
+          const s = t / 0.5;
+          return `rgba(${Math.round(30 + s * 20)}, ${Math.round(60 + s * 40)}, ${Math.round(140 - s * 60)}, 0.85)`;
+        } else {
+          const s = (t - 0.5) / 0.5;
+          return `rgba(${Math.round(50 + s * 195)}, ${Math.round(100 - s * 10 + s * 58)}, ${Math.round(80 - s * 69)}, 0.85)`;
+        }
+      }
+
+      // 存储单元格位置用于tooltip
+      canvas._cells = [];
+      
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const x = labelW + j * cellSize;
+          const y = labelH + i * cellSize;
+          const val = corrMatrix[indices[i]][indices[j]];
+          
+          ctx.fillStyle = corrColor(val);
+          ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+          
+          // 数值文字
+          ctx.fillStyle = Math.abs(val) > 0.5 ? '#f1f5f9' : '#94a3b8';
+          ctx.font = `${Math.min(11, cellSize * 0.28)}px DM Sans`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(val.toFixed(2), x + cellSize / 2 - 0.5, y + cellSize / 2);
+          
+          canvas._cells.push({ x, y, w: cellSize - 1, h: cellSize - 1, i, j, val });
+        }
+        
+        // 行标签
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = `500 ${Math.min(11, cellSize * 0.28)}px DM Sans`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(etfData[indices[i]].ticker, labelW - 6, labelH + i * cellSize + cellSize / 2);
+      }
+      
+      // 列标签
+      for (let j = 0; j < n; j++) {
+        ctx.save();
+        ctx.translate(labelW + j * cellSize + cellSize / 2, labelH - 4);
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = `500 ${Math.min(11, cellSize * 0.28)}px DM Sans`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(etfData[indices[j]].ticker, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    // 热力图tooltip交互
+    function setupHeatmapTooltip() {
+      const canvas = document.getElementById('heatmapCanvas');
+      const tooltip = document.getElementById('heatmapTooltip');
+      
+      canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        let found = null;
+        if (canvas._cells) {
+          for (const cell of canvas._cells) {
+            if (mx >= cell.x && mx <= cell.x + cell.w && my >= cell.y && my <= cell.y + cell.h) {
+              found = cell; break;
+            }
+          }
+        }
+        
+        if (found) {
+          const t1 = etfData[selectedETFs[found.i]].ticker;
+          const t2 = etfData[selectedETFs[found.j]].ticker;
+          tooltip.innerHTML = `<span class="text-fg font-semibold">${t1} × ${t2}</span><br><span style="color:${found.val > 0.5 ? '#f59e0b' : found.val < -0.1 ? '#6366f1' : '#94a3b8'}">${found.val.toFixed(4)}</span>`;
+          tooltip.style.left = (mx + 15) + 'px';
+          tooltip.style.top = (my - 10) + 'px';
+          tooltip.classList.add('visible');
+        } else {
+          tooltip.classList.remove('visible');
+        }
+      });
+      
+      canvas.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+    }
+
+    // ========================================
+    // UI更新
+    // ========================================
+    
+    function renderETFList() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const activeCat = document.querySelector('.cat-tag.active')?.dataset.cat || 'all';
+      
+      const filtered = etfData.map((etf, i) => ({...etf, idx: i})).filter(etf => {
+        const matchSearch = !search || etf.ticker.toLowerCase().includes(search) || etf.name.toLowerCase().includes(search);
+        const matchCat = activeCat === 'all' || etf.category === activeCat;
+        return matchSearch && matchCat;
+      });
+      
+      document.getElementById('etfCount').textContent = filtered.length + ' 只';
+      
+      const container = document.getElementById('etfList');
+      container.innerHTML = filtered.map(etf => {
+        const sel = selectedETFs.includes(etf.idx);
+        const retColor = etf.ret >= 0.08 ? '#10b981' : etf.ret >= 0.04 ? '#f59e0b' : '#94a3b8';
+        return `
+          <div class="etf-item rounded-lg px-3 py-2.5 flex items-center gap-3 ${sel ? 'selected' : ''}" data-idx="${etf.idx}">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                 style="background:${sel ? 'rgba(245,158,11,0.15)' : 'rgba(30,41,59,0.5)'};color:${sel ? '#f59e0b' : '#64748b'};">
+              ${etf.ticker.slice(0, 2)}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-fg">${etf.ticker}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded text-muted" style="background:rgba(30,41,59,0.5);">${etf.category}</span>
+              </div>
+              <div class="text-[11px] text-muted truncate">${etf.name}</div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <div class="text-sm font-semibold" style="color:${retColor}">${(etf.ret * 100).toFixed(1)}%</div>
+              <div class="text-[10px] text-muted">σ ${(etf.vol * 100).toFixed(1)}%</div>
+            </div>
+            <div class="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style="background:${sel ? '#f59e0b' : 'transparent'};border:1.5px solid ${sel ? '#f59e0b' : '#3a4a52'};">
+              ${sel ? '<i class="fas fa-check text-[9px] text-bg"></i>' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      // 绑定点击事件
+      container.querySelectorAll('.etf-item').forEach(el => {
+        el.addEventListener('click', () => toggleETF(parseInt(el.dataset.idx)));
+      });
+    }
+
+    function renderWeightList() {
+      const container = document.getElementById('weightList');
+      const empty = document.getElementById('emptyWeight');
+      
+      if (selectedETFs.length === 0) {
+        container.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      
+      empty.style.display = 'none';
+      
+      // 归一化权重
+      const total = selectedETFs.reduce((s, i) => s + (weights[i] || 0), 0);
+      const normWeights = selectedETFs.map(i => total > 0 ? (weights[i] || 0) / total : 1 / selectedETFs.length);
+      
+      container.innerHTML = selectedETFs.map((etfIdx, pos) => {
+        const etf = etfData[etfIdx];
+        const w = weights[etfIdx] || 20;
+        const pct = total > 0 ? (w / total * 100).toFixed(1) : (100 / selectedETFs.length).toFixed(1);
+        const color = chartColors[pos % chartColors.length];
+        return `
+          <div class="space-y-1.5" data-idx="${etfIdx}">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:${color};"></span>
+                <span class="text-sm font-semibold text-fg">${etf.ticker}</span>
+                <button class="text-muted hover:text-negative text-xs transition-colors remove-etf" data-idx="${etfIdx}" title="移除">
+                  <i class="fas fa-xmark"></i>
+                </button>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <input type="number" class="weight-input" value="${pct}" min="0" max="100" step="0.1" data-idx="${etfIdx}">
+                <span class="text-xs text-muted">%</span>
+              </div>
+            </div>
+            <input type="range" min="0" max="100" step="0.5" value="${w}" class="weight-slider" data-idx="${etfIdx}">
+          </div>
+        `;
+      }).join('');
+      
+      // 绑定滑块事件
+      container.querySelectorAll('.weight-slider').forEach(slider => {
+        slider.addEventListener('input', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          weights[idx] = parseFloat(e.target.value);
+          updateAll();
+        });
+      });
+      
+      // 绑定数字输入事件
+      container.querySelectorAll('.weight-input').forEach(input => {
+        input.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          const val = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+          // 将百分比转换回原始权重值
+          const currentTotal = selectedETFs.reduce((s, i) => s + (weights[i] || 0), 0);
+          weights[idx] = currentTotal > 0 ? val / 100 * currentTotal : val;
+          updateAll();
+        });
+      });
+      
+      // 绑定移除按钮
+      container.querySelectorAll('.remove-etf').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          toggleETF(parseInt(btn.dataset.idx));
+        });
+      });
+      
+      // 更新总权重显示
+      document.getElementById('totalWeight').textContent = '100%';
+    }
+
+    function updateMetrics() {
+      if (selectedETFs.length === 0) {
+        document.getElementById('metricReturn').textContent = '--';
+        document.getElementById('metricVol').textContent = '--';
+        document.getElementById('metricSharpe').textContent = '--';
+        document.getElementById('metricDD').textContent = '--';
+        document.getElementById('metricReturnSub').textContent = '添加资产以计算';
+        document.getElementById('metricVolSub').textContent = '添加资产以计算';
+        document.getElementById('metricSharpeSub').textContent = '添加资产以计算';
+        document.getElementById('metricDDSub').textContent = '添加资产以计算';
+        return;
+      }
+      
+      const total = selectedETFs.reduce((s, i) => s + (weights[i] || 0), 0);
+      const w = selectedETFs.map(i => total > 0 ? (weights[i] || 0) / total : 1 / selectedETFs.length);
+      const cov = getCovMatrix(selectedETFs);
+      const rf = getRiskFreeRate();
+      
+      const r = portReturn(selectedETFs, w);
+      const v = portVol(selectedETFs, w, cov);
+      const sharpe = v > 1e-10 ? (r - rf) / v : 0;
+      
+      // 生成模拟数据计算最大回撤
+      const simData = generateSimulatedReturns(selectedETFs, 36);
+      simulatedReturns = simData;
+      const curve = cumulativeReturns(simData, w);
+      const dd = maxDrawdown(curve);
+      
+      document.getElementById('metricReturn').textContent = (r * 100).toFixed(2) + '%';
+      document.getElementById('metricReturn').style.color = r > 0.06 ? '#10b981' : r > 0.03 ? '#f59e0b' : '#94a3b8';
+      document.getElementById('metricReturnSub').textContent = `年化 · ${(r * 100).toFixed(1)}%`;
+      
+      document.getElementById('metricVol').textContent = (v * 100).toFixed(2) + '%';
+      document.getElementById('metricVol').style.color = v < 0.08 ? '#10b981' : v < 0.15 ? '#f59e0b' : '#ef4444';
+      document.getElementById('metricVolSub').textContent = `年化 · ${(v * 100).toFixed(1)}%`;
+      
+      document.getElementById('metricSharpe').textContent = sharpe.toFixed(3);
+      document.getElementById('metricSharpe').style.color = sharpe > 1.0 ? '#10b981' : sharpe > 0.5 ? '#f59e0b' : '#ef4444';
+      document.getElementById('metricSharpeSub').textContent = `Rf ${(rf * 100).toFixed(1)}%`;
+      
+      document.getElementById('metricDD').textContent = (dd * 100).toFixed(2) + '%';
+      document.getElementById('metricDD').style.color = dd < 0.10 ? '#10b981' : dd < 0.20 ? '#f59e0b' : '#ef4444';
+      document.getElementById('metricDDSub').textContent = `36月模拟`;
+    }
+
+    function updateCharts() {
+      const n = selectedETFs.length;
+      const total = selectedETFs.reduce((s, i) => s + (weights[i] || 0), 0);
+      const w = n > 0 ? selectedETFs.map(i => total > 0 ? (weights[i] || 0) / total : 1 / n) : [];
+      
+      // ---- 有效前沿图 ----
+      if (n >= 2) {
+        mcResults = runMonteCarlo(selectedETFs, 10000);
+        const frontier = extractFrontier(mcResults);
+        
+        charts.frontier.data.datasets[0].data = mcResults.map(p => ({x: p.r, y: p.v}));
+        charts.frontier.data.datasets[1].data = frontier.map(p => ({x: p.r, y: p.v}));
+        charts.frontier.data.datasets[2].data = n > 0 ? [{x: portReturn(selectedETFs, w), y: portVol(selectedETFs, w, getCovMatrix(selectedETFs))}] : [];
+        charts.frontier.data.datasets[3].data = optimalResult ? [{x: optimalResult.r, y: optimalResult.v}] : [];
+      } else {
+        charts.frontier.data.datasets[0].data = [];
+        charts.frontier.data.datasets[1].data = [];
+        charts.frontier.data.datasets[2].data = [];
+        charts.frontier.data.datasets[3].data = [];
+      }
+      charts.frontier.update('none');
+      
+      // ---- 饼图 ----
+      if (n > 0) {
+        charts.pie.data.labels = selectedETFs.map(i => etfData[i].ticker);
+        charts.pie.data.datasets[0].data = w.map(x => x * 100);
+        charts.pie.data.datasets[0].backgroundColor = selectedETFs.map((_, i) => chartColors[i % chartColors.length]);
+      } else {
+        charts.pie.data.labels = [];
+        charts.pie.data.datasets[0].data = [];
+      }
+      charts.pie.update('none');
+      
+      // ---- 累计收益曲线 ----
+      if (n > 0 && simulatedReturns[selectedETFs[0]]) {
+        const currentCurve = cumulativeReturns(simulatedReturns, w);
+        charts.returns.data.datasets[0].data = currentCurve;
+        
+        if (optimalResult && optimalResult.w) {
+          const optCurve = cumulativeReturns(simulatedReturns, optimalResult.w);
+          charts.returns.data.datasets[1].data = optCurve;
+        } else {
+          charts.returns.data.datasets[1].data = [];
+        }
+      } else {
+        charts.returns.data.datasets[0].data = [];
+        charts.returns.data.datasets[1].data = [];
+      }
+      charts.returns.update('none');
+      
+      // ---- 风险分解图 ----
+      if (n > 0) {
+        const cov = getCovMatrix(selectedETFs);
+        const rc = riskDecomposition(selectedETFs, w, cov);
+        // 按风险贡献降序排列
+        const sorted = selectedETFs.map((idx, i) => ({idx, rc: rc[i], color: chartColors[i % chartColors.length]}))
+          .sort((a, b) => b.rc - a.rc);
+        
+        charts.risk.data.labels = sorted.map(x => etfData[x.idx].ticker);
+        charts.risk.data.datasets[0].data = sorted.map(x => x.rc);
+        charts.risk.data.datasets[0].backgroundColor = sorted.map(x => x.color + 'cc');
+      } else {
+        charts.risk.data.labels = [];
+        charts.risk.data.datasets[0].data = [];
+      }
+      charts.risk.update('none');
+      
+      // ---- 热力图 ----
+      drawHeatmap(selectedETFs);
+    }
+
+    function updateAll() {
+      renderWeightList();
+      updateMetrics();
+      updateCharts();
+    }
+
+    // ========================================
+    // 交互逻辑
+    // ========================================
+    
+    function toggleETF(idx) {
+      const pos = selectedETFs.indexOf(idx);
+      if (pos >= 0) {
+        selectedETFs.splice(pos, 1);
+        delete weights[idx];
+        optimalResult = null;
+      } else {
+        selectedETFs.push(idx);
+        weights[idx] = 20; // 默认权重
+        optimalResult = null;
+      }
+      
+      document.getElementById('btnOptimize').disabled = selectedETFs.length < 2;
+      renderETFList();
+      updateAll();
+    }
+
+    function showToast(msg, type = 'info') {
+      const toast = document.getElementById('toast');
+      const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle';
+      const color = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#f59e0b';
+      toast.innerHTML = `<i class="fas ${icon} mr-2" style="color:${color};"></i>${msg}`;
+      toast.style.borderColor = color + '40';
+      toast.classList.add('show');
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    function runOptimization() {
+      if (selectedETFs.length < 2) {
+        showToast('请至少选择2只ETF', 'error');
+        return;
+      }
+      
+      const btn = document.getElementById('btnOptimize');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner mr-2"></span>优化计算中...';
+      
+      // 用setTimeout让UI先更新
+      setTimeout(() => {
+        try {
+          // 重新运行蒙特卡洛（更多采样以获得更精确结果）
+          mcResults = runMonteCarlo(selectedETFs, 15000);
+          optimalResult = optimize(selectedETFs);
+          
+          if (optimalResult) {
+            // 将最优权重应用到UI
+            const total = selectedETFs.reduce((s, i) => s + (weights[i] || 0), 0);
+            selectedETFs.forEach((etfIdx, i) => {
+              weights[etfIdx] = optimalResult.w[i] * 100;
+            });
+            
+            updateAll();
+            
+            const targetLabels = {
+              sharpe: '最大夏普比率',
+              minrisk: '最小波动率',
+              equal: '等权重分配',
+              target: '目标收益'
+            };
+            showToast(`优化完成：${targetLabels[optTarget]} · 夏普 ${optimalResult.sharpe.toFixed(3)}`, 'success');
+          }
+        } catch (err) {
+          showToast('优化计算出错：' + err.message, 'error');
+          console.error(err);
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-bolt mr-2"></i>优化组合';
+      }, 50);
+    }
+
+    // ========================================
+    // 事件绑定
+    // ========================================
+    
+    function initEvents() {
+      // 搜索
+      document.getElementById('searchInput').addEventListener('input', renderETFList);
+      
+      // 分类标签
+      document.querySelectorAll('.cat-tag').forEach(tag => {
+        tag.addEventListener('click', () => {
+          document.querySelectorAll('.cat-tag').forEach(t => t.classList.remove('active'));
+          tag.classList.add('active');
+          renderETFList();
+        });
+      });
+      
+      // 优化目标选择
+      document.querySelectorAll('.radio-opt').forEach(opt => {
+        opt.addEventListener('click', () => {
+          document.querySelectorAll('.radio-opt').forEach(o => o.classList.remove('active'));
+          opt.classList.add('active');
+          optTarget = opt.dataset.target;
+          document.getElementById('targetReturnGroup').classList.toggle('hidden', optTarget !== 'target');
+        });
+      });
+      
+      // 优化按钮
+      document.getElementById('btnOptimize').addEventListener('click', runOptimization);
+      
+      // 无风险利率变化时更新指标
+      document.getElementById('riskFreeRate').addEventListener('change', () => {
+        updateMetrics();
+        if (selectedETFs.length >= 2) {
+          mcResults = runMonteCarlo(selectedETFs, 10000);
+          updateCharts();
+        }
+      });
+    }
+
+    // ========================================
+    // 初始化
+    // ========================================
+    
+    function init() {
+      createFrontierChart();
+      createPieChart();
+      createReturnChart();
+      createRiskChart();
+      setupHeatmapTooltip();
+      renderETFList();
+      initEvents();
+      
+      // 默认选中几个ETF作为示例
+      const defaults = [0, 1, 6, 9, 10]; // SPY, QQQ, AGG, GLD, VNQ
+      defaults.forEach((idx, i) => {
+        selectedETFs.push(idx);
+        weights[idx] = [25, 20, 20, 20, 15][i];
+      });
+      
+      document.getElementById('btnOptimize').disabled = false;
+      renderETFList();
+      updateAll();
+    }
+
+    // 等待DOM和字体加载
+    document.addEventListener('DOMContentLoaded', () => {
+      // 稍微延迟以确保Chart.js完全加载
+      setTimeout(init, 100);
+    });
+  </script>
+</body>
+</html>
